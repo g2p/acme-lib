@@ -30,7 +30,7 @@ use crate::Result;
 
 mod auth;
 
-pub use self::auth::{Auth, Challenge};
+pub use self::auth::{Auth, Challenge, Dns, Http, TlsAlpn};
 
 /// The order wrapped with an outer façade.
 pub(crate) struct Order {
