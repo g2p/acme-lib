@@ -17,16 +17,15 @@
 //! [`Challenge`]: struct.Challenge.html
 //! [`CsrOrder`]: struct.CsrOrder.html
 //! [`CertOrder`]: struct.CertOrder.html
-use openssl::pkey::{self, PKey};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use crate::acc::AccountInner;
 use crate::api::{ApiAuth, ApiEmptyString, ApiFinalize, ApiOrder};
-use crate::cert::{create_csr, Certificate};
+use crate::cert::create_csr_der;
 use crate::util::{base64url, read_json};
-use crate::Result;
+use crate::{Error, Result};
 
 mod auth;
 
@@ -205,9 +204,8 @@ impl CsrOrder {
     ///
     /// [`finalize_pkey`]: struct.CsrOrder.html#method.finalize_pkey
     pub fn finalize(self, private_key_pem: &str, delay_millis: u64) -> Result<CertOrder> {
-        let pkey_pri = PKey::private_key_from_pem(private_key_pem.as_bytes())
-            .map_err(|e| format!("Error reading private key PEM: {}", e))?;
-        self.finalize_pkey(pkey_pri, delay_millis)
+        let key = rcgen::KeyPair::from_pem(private_key_pem)?;
+        self.finalize_pkey(key, delay_millis)
     }
 
     /// Lower level finalize call that works directly with the openssl crate structures.
@@ -217,20 +215,14 @@ impl CsrOrder {
     /// Once the CSR has been submitted, the order goes into a `processing` status,
     /// where we must poll until the status changes. The `delay_millis` is the
     /// amount of time to wait between each poll attempt.
-    pub fn finalize_pkey(
-        self,
-        private_key: PKey<pkey::Private>,
-        delay_millis: u64,
-    ) -> Result<CertOrder> {
+    pub fn finalize_pkey(self, key: rcgen::KeyPair, delay_millis: u64) -> Result<CertOrder> {
         //
         // the domains that we have authorized
         let domains = self.order.api_order.domains();
 
         // csr from private key and authorized domains.
-        let csr = create_csr(&private_key, &domains)?;
+        let csr_der = create_csr_der(&key, &domains)?;
 
-        // this is not the same as PEM.
-        let csr_der = csr.to_der().expect("to_der()");
         let csr_enc = base64url(&csr_der);
         let finalize = ApiFinalize { csr: csr_enc };
 
@@ -251,7 +243,7 @@ impl CsrOrder {
             return Err(format!("Order is in status: {:?}", order.api_order.status).into());
         }
 
-        Ok(CertOrder { private_key, order })
+        Ok(CertOrder { key, order })
     }
 
     /// Access the underlying JSON object for debugging.
@@ -272,7 +264,7 @@ fn wait_for_order_status(inner: &Arc<AccountInner>, url: &str, delay_millis: u64
 
 /// Order for an issued certificate that is ready to download.
 pub struct CertOrder {
-    private_key: PKey<pkey::Private>,
+    key: rcgen::KeyPair,
     order: Order,
 }
 
@@ -283,20 +275,23 @@ impl CertOrder {
     /// persistence. They can later be retreived using [`Account::certificate`].
     ///
     /// [`Account::certificate`]: ../struct.Account.html#method.certificate
-    pub fn download_cert(self) -> Result<Certificate> {
+    pub fn download_cert(self) -> Result<rustls::sign::CertifiedKey> {
         //
         let url = self.order.api_order.certificate.expect("certificate url");
         let inner = self.order.inner;
 
         let res = inner.transport.call(&url, &ApiEmptyString)?;
 
-        // save key and cert into persistence
-        let pkey_pem_bytes = self.private_key.private_key_to_pem_pkcs8().expect("to_pem");
-        let pkey_pem = String::from_utf8_lossy(&pkey_pem_bytes);
-
-        let cert = res.into_string()?;
-
-        Ok(Certificate::new(pkey_pem.to_string(), cert))
+        let certchain = res.into_reader();
+        let certchain = rustls::internal::pemfile::certs(&mut std::io::BufReader::new(certchain))
+            .map_err(|_| Error::from("Couldn't parse pem certificate chain"))?;
+        let privkey = rustls::PrivateKey(self.key.serialize_der());
+        let privkey =
+            rustls::sign::any_ecdsa_type(&privkey).map_err(|_| "Error with our private key")?;
+        Ok(rustls::sign::CertifiedKey::new(
+            certchain,
+            Arc::new(privkey),
+        ))
     }
 
     /// Access the underlying JSON object for debugging.
@@ -330,7 +325,7 @@ mod test {
         let ord = acc.new_order("acmetest.example.com", &[])?;
         // shortcut auth
         let ord = CsrOrder { order: ord.order };
-        let pkey = cert::create_p256_key();
+        let pkey = cert::create_p256_key()?;
         let _ord = ord.finalize_pkey(pkey, 1)?;
         Ok(())
     }
@@ -345,14 +340,18 @@ mod test {
 
         // shortcut auth
         let ord = CsrOrder { order: ord.order };
-        let pkey = cert::create_p256_key();
+        let pkey = cert::create_p256_key()?;
         let ord = ord.finalize_pkey(pkey, 1)?;
 
         let cert = ord.download_cert()?;
-        assert_eq!("CERT HERE", cert.certificate());
-        assert!(!cert.private_key().is_empty());
-        assert_eq!(cert.valid_days_left(), 89);
-
+        assert_eq!(
+            rustls::internal::pemfile::certs(&mut std::io::Cursor::new(
+                crate::test::EXAMPLE_CERT_CHAIN
+            )),
+            Ok(cert.cert)
+        );
+        //assert!(!cert.private_key().is_empty());
+        //assert_eq!(cert.valid_days_left(), 89);
         Ok(())
     }
 }

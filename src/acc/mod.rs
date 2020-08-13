@@ -2,7 +2,6 @@
 use std::sync::Arc;
 
 use crate::api::{ApiAccount, ApiDirectory, ApiIdentifier, ApiOrder, ApiRevocation};
-use crate::cert::Certificate;
 use crate::order::{NewOrder, Order};
 use crate::req::req_expect_header;
 use crate::trans::Transport;
@@ -13,7 +12,7 @@ mod akey;
 
 pub(crate) use self::akey::AcmeKey;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct AccountInner {
     pub transport: Transport,
     pub api_account: ApiAccount,
@@ -57,8 +56,8 @@ impl Account {
     /// Private key for this account.
     ///
     /// The key is an elliptic curve private key.
-    pub fn acme_private_key_pem(&self) -> String {
-        String::from_utf8(self.inner.transport.acme_key().to_pem()).expect("from_utf8")
+    pub fn acme_private_key_pkcs8(&self) -> &[u8] {
+        self.inner.transport.acme_key().to_pkcs8()
     }
 
     /// Create a new order to issue a certificate for this account.
@@ -103,9 +102,13 @@ impl Account {
     /// certs, the revoked certificate will still be available using [`certificate`].
     ///
     /// [`certificate`]: struct.Account.html#method.certificate
-    pub fn revoke_certificate(&self, cert: &Certificate, reason: RevocationReason) -> Result<()> {
+    pub fn revoke_certificate(
+        &self,
+        cert: &rustls::Certificate,
+        reason: RevocationReason,
+    ) -> Result<()> {
         // convert to base64url of the DER (which is not PEM).
-        let certificate = base64url(&cert.certificate_der());
+        let certificate = base64url(&cert);
 
         let revoc = ApiRevocation {
             certificate,

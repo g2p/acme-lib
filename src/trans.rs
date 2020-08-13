@@ -1,13 +1,10 @@
-use openssl::ecdsa::EcdsaSig;
-use openssl::sha::sha256;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use crate::acc::AcmeKey;
-use crate::jwt::*;
+use crate::jwt::JwsProtected;
 use crate::req::{req_expect_header, req_handle_error, req_head, req_post};
-use crate::util::base64url;
 use crate::Result;
 
 /// JWS payload and nonce handling for requests to the API.
@@ -18,7 +15,7 @@ use crate::Result;
 /// 2. `call_jwk()` against newAccount url
 /// 3. `set_key_id` from the returned `Location` header.
 /// 4. `call()` for all calls after that.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct Transport {
     acme_key: AcmeKey,
     nonce_pool: Arc<NoncePool>,
@@ -153,7 +150,7 @@ fn jws_with_jwk<T: Serialize + ?Sized>(
     key: &AcmeKey,
     payload: &T,
 ) -> Result<String> {
-    let jwk: Jwk = key.into();
+    let jwk: biscuit::jwk::JWK<biscuit::Empty> = key.into();
     let protected = JwsProtected::new_jwk(jwk, url, nonce);
     jws_with(protected, key, payload)
 }
@@ -163,33 +160,22 @@ fn jws_with<T: Serialize + ?Sized>(
     key: &AcmeKey,
     payload: &T,
 ) -> Result<String> {
-    let protected = {
-        let pro_json = serde_json::to_string(&protected)?;
-        base64url(pro_json.as_bytes())
-    };
-    let payload = {
-        let pay_json = serde_json::to_string(payload)?;
-        if pay_json == "\"\"" {
-            // This is a special case produced by ApiEmptyString and should
-            // not be further base64url encoded.
-            "".to_string()
-        } else {
-            base64url(pay_json.as_bytes())
-        }
-    };
-
-    let to_sign = format!("{}.{}", protected, payload);
-    let digest = sha256(to_sign.as_bytes());
-    let sig = EcdsaSig::sign(&digest, key.private_key()).expect("EcdsaSig::sign");
-    let r = sig.r().to_vec();
-    let s = sig.s().to_vec();
-
-    let mut v = Vec::with_capacity(r.len() + s.len());
-    v.extend_from_slice(&r);
-    v.extend_from_slice(&s);
-    let signature = base64url(&v);
-
-    let jws = Jws::new(protected, payload, signature);
+    let mut payload = serde_json::to_vec(payload)?;
+    // Work around the fact that we can't serialize ApiEmptyString to an empty string,
+    // we can at best get the serialization of the empty string.
+    // Reason: https://users.rust-lang.org/t/ok-value-of-a-serde-serializer/32050
+    if &payload == b"\"\"" {
+        payload = vec![];
+    }
+    //let to_sign = format!("{}.{}", protected, payload);
+    //let signature = key.keypair.sign(rng, to_sign.as_bytes())?;
+    //let signature = base64url(signature.as_ref());
+    let jws = biscuit::jws::Flattened::new(
+        payload,
+        protected.0,
+        Default::default(),
+        &key.jws_secret,
+    );
 
     Ok(serde_json::to_string(&jws)?)
 }

@@ -10,6 +10,8 @@ lazy_static! {
     static ref RE_URL: regex::Regex = regex::Regex::new("<URL>").unwrap();
 }
 
+pub const EXAMPLE_CERT_CHAIN: &'static str = include_str!("./example.org.crt");
+
 pub struct TestServer {
     pub dir_url: String,
     shutdown: Option<futures::sync::oneshot::Sender<()>>,
@@ -161,7 +163,7 @@ fn post_finalize(_url: &str) -> Response<Body> {
 fn post_certificate(_url: &str) -> Response<Body> {
     Response::builder()
         .status(200)
-        .body("CERT HERE".into())
+        .body(EXAMPLE_CERT_CHAIN.into())
         .unwrap()
 }
 

@@ -1,5 +1,3 @@
-//
-use openssl::sha::sha256;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -7,7 +5,6 @@ use std::time::Duration;
 use crate::acc::AccountInner;
 use crate::acc::AcmeKey;
 use crate::api::{ApiAuth, ApiChallenge, ApiEmptyObject, ApiEmptyString};
-use crate::jwt::*;
 use crate::util::{base64url, read_json};
 use crate::Result;
 
@@ -179,7 +176,7 @@ impl Challenge<Http> {
     /// The `proof` is some text content that is placed in the file named by `token`.
     pub fn http_proof(&self) -> String {
         let acme_key = self.inner.transport.acme_key();
-        key_authorization(&self.api_challenge.token, acme_key, false)
+        key_authorization(&self.api_challenge.token, acme_key)
     }
 }
 
@@ -191,16 +188,20 @@ impl Challenge<Dns> {
     /// ```
     pub fn dns_proof(&self) -> String {
         let acme_key = self.inner.transport.acme_key();
-        key_authorization(&self.api_challenge.token, acme_key, true)
+        let key_auth = key_authorization(&self.api_challenge.token, acme_key);
+        base64url(ring::digest::digest(&ring::digest::SHA256, key_auth.as_bytes()).as_ref())
     }
 }
 
 impl Challenge<TlsAlpn> {
     /// The `proof` is the contents of the ACME extension to be placed in the
     /// certificate used for validation.
-    pub fn tls_alpn_proof(&self) -> [u8; 32] {
+    pub fn tls_alpn_proof(&self) -> impl AsRef<[u8]> {
         let acme_key = self.inner.transport.acme_key();
-        sha256(key_authorization(&self.api_challenge.token, acme_key, false).as_bytes())
+        ring::digest::digest(
+            &ring::digest::SHA256,
+            key_authorization(&self.api_challenge.token, acme_key).as_bytes(),
+        )
     }
 }
 
@@ -257,17 +258,10 @@ impl<A> Challenge<A> {
     }
 }
 
-fn key_authorization(token: &str, key: &AcmeKey, extra_sha256: bool) -> String {
-    let jwk: Jwk = key.into();
-    let jwk_thumb: JwkThumb = (&jwk).into();
-    let jwk_json = serde_json::to_string(&jwk_thumb).expect("jwk_thumb");
-    let digest = base64url(&sha256(jwk_json.as_bytes()));
-    let key_auth = format!("{}.{}", token, digest);
-    if extra_sha256 {
-        base64url(&sha256(key_auth.as_bytes()))
-    } else {
-        key_auth
-    }
+fn key_authorization(token: &str, key: &AcmeKey) -> String {
+    let jwk: biscuit::jwk::JWK<biscuit::Empty> = key.into();
+    let thumbprint = jwk.algorithm.thumbprint(&biscuit::digest::SHA256).unwrap();
+    format!("{}.{}", token, thumbprint)
 }
 
 fn wait_for_auth_status(

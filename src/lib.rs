@@ -79,7 +79,7 @@
 //! // Ownership is proven. Create a private key for
 //! // the certificate. These are provided for convenience, you
 //! // can provide your own keypair instead if you want.
-//! let pkey_pri = create_p384_key();
+//! let pkey_pri = create_p384_key()?;
 //!
 //! // Submit the CSR. This causes the ACME provider to enter a
 //! // state of "processing" that must be polled until the
@@ -91,7 +91,7 @@
 //! // Now download the certificate. Also stores the cert in
 //! // the persistence.
 //! let cert = ord_cert.download_cert()?;
-//! println!("{:?}", cert);
+//! println!("{:?}", cert.cert);
 //!
 //! Ok(())
 //! }
@@ -166,6 +166,6 @@ pub mod order;
 mod test;
 
 pub use crate::acc::{Account, RevocationReason};
-pub use crate::cert::{create_p256_key, create_p384_key, create_rsa_key, Certificate};
+pub use crate::cert::{create_p256_key, create_p384_key}; //, create_rsa_key, Certificate};
 pub use crate::dir::{Directory, DirectoryUrl};
 pub use crate::error::{Error, Result};

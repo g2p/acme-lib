@@ -41,6 +41,9 @@ pub struct Directory {
     api_directory: ApiDirectory,
 }
 
+static RNG: once_cell::sync::Lazy<ring::rand::SystemRandom> =
+    once_cell::sync::Lazy::new(ring::rand::SystemRandom::new);
+
 impl Directory {
     /// Create a directory over a persistence implementation and directory url.
     pub fn from_url(url: DirectoryUrl) -> Result<Directory> {
@@ -55,12 +58,12 @@ impl Directory {
     }
 
     pub fn register_account(&self, contact: Vec<String>) -> Result<Account> {
-        let acme_key = AcmeKey::new();
+        let acme_key = AcmeKey::new(&*RNG)?;
         self.upsert_account(acme_key, contact)
     }
 
-    pub fn load_account(&self, pem: &str, contact: Vec<String>) -> Result<Account> {
-        let acme_key = AcmeKey::from_pem(pem.as_bytes())?;
+    pub fn load_account(&self, pkcs8: &[u8], contact: Vec<String>) -> Result<Account> {
+        let acme_key = AcmeKey::from_pkcs8(pkcs8)?;
         self.upsert_account(acme_key, contact)
     }
 

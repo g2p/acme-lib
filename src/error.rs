@@ -20,6 +20,8 @@ pub enum Error {
     Json(serde_json::Error),
     /// std::io error.
     Io(io::Error),
+    /// Rcgen (certificate generation)
+    Rcgen(rcgen::RcgenError),
     /// Some other error. Notice that `Error` is
     /// `From<String>` and `From<&str>` and it becomes `Other`.
     Other(String),
@@ -34,6 +36,7 @@ impl fmt::Display for Error {
             Error::Base64Decode(e) => write!(f, "{}", e),
             Error::Json(e) => write!(f, "{}", e),
             Error::Io(e) => write!(f, "{}", e),
+            Error::Rcgen(e) => write!(f, "{}", e),
             Error::Other(s) => write!(f, "{}", s),
         }
     }
@@ -54,6 +57,24 @@ impl From<serde_json::Error> for Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+impl From<rcgen::RcgenError> for Error {
+    fn from(e: rcgen::RcgenError) -> Self {
+        Error::Rcgen(e)
+    }
+}
+
+impl From<ring::error::KeyRejected> for Error {
+    fn from(_: ring::error::KeyRejected) -> Self {
+        Error::Other("Bad key".to_owned())
+    }
+}
+
+impl From<ring::error::Unspecified> for Error {
+    fn from(_: ring::error::Unspecified) -> Self {
+        Error::Other("Unspecified ring error".to_owned())
     }
 }
 

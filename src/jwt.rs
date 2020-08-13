@@ -1,38 +1,51 @@
 use serde::{Deserialize, Serialize};
 
 use crate::acc::AcmeKey;
-use crate::cert::EC_GROUP_P256;
-use crate::util::base64url;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub(crate) struct JwsProtected {
-    alg: String,
+pub(crate) struct JwsProtectedExtra {
     url: String,
     nonce: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    jwk: Option<Jwk>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    kid: Option<String>,
 }
 
+pub(crate) struct JwsProtected(pub(crate) biscuit::jws::Header<JwsProtectedExtra>);
+
 impl JwsProtected {
-    pub(crate) fn new_jwk(jwk: Jwk, url: &str, nonce: String) -> Self {
-        JwsProtected {
-            alg: "ES256".into(),
+    pub(crate) fn new_jwk(
+        jwk: biscuit::jwk::JWK<biscuit::Empty>,
+        url: &str,
+        nonce: String,
+    ) -> Self {
+        let private = JwsProtectedExtra {
             url: url.into(),
             nonce,
-            jwk: Some(jwk),
+        };
+        let registered = biscuit::jws::RegisteredHeader {
+            algorithm: biscuit::jwa::SignatureAlgorithm::ES256,
+            web_key: Some(serde_json::to_string(&jwk).unwrap()),
+            media_type: None,
             ..Default::default()
-        }
+        };
+        Self(biscuit::jws::Header {
+            registered,
+            private,
+        })
     }
     pub(crate) fn new_kid(kid: &str, url: &str, nonce: String) -> Self {
-        JwsProtected {
-            alg: "ES256".into(),
+        let private = JwsProtectedExtra {
             url: url.into(),
             nonce,
-            kid: Some(kid.into()),
+        };
+        let registered = biscuit::jws::RegisteredHeader {
+            algorithm: biscuit::jwa::SignatureAlgorithm::ES256,
+            key_id: Some(kid.into()),
+            media_type: None,
             ..Default::default()
-        }
+        };
+        Self(biscuit::jws::Header {
+            registered,
+            private,
+        })
     }
 }
 
@@ -56,22 +69,44 @@ pub(crate) struct JwkThumb {
     y: String,
 }
 
-impl From<&AcmeKey> for Jwk {
+impl From<&AcmeKey> for biscuit::jwk::JWK<biscuit::Empty> {
     fn from(a: &AcmeKey) -> Self {
-        let mut ctx = openssl::bn::BigNumContext::new().expect("BigNumContext");
-        let mut x = openssl::bn::BigNum::new().expect("BigNum");
-        let mut y = openssl::bn::BigNum::new().expect("BigNum");
-        a.private_key()
-            .public_key()
-            .affine_coordinates_gfp(&*EC_GROUP_P256, &mut x, &mut y, &mut ctx)
-            .expect("affine_coordinates_gfp");
-        Jwk {
-            alg: "ES256".into(),
-            kty: "EC".into(),
-            crv: "P-256".into(),
-            _use: "sig".into(),
-            x: base64url(&x.to_vec()),
-            y: base64url(&y.to_vec()),
+        //let mut ctx = openssl::bn::BigNumContext::new().expect("BigNumContext");
+        // TODO: build x and y (pub coords) from pkcs8, possibly through d (the priv coord)
+        let p8 = a.to_pkcs8();
+        let template = include_bytes!("ecPublicKey_p256_pkcs8_v1_template.der");
+        // Ensure the ring generator didn't change
+        assert_eq!(&p8[..0x24], &template[..0x24]);
+        assert_eq!(&p8[0x44..0x49], &template[0x24..]);
+        assert_eq!(p8[0x49], 4);
+        assert_eq!(p8.len(), 0x8a);
+        // Since the rest of the structure has been fully checked (including with ring
+        // when instantiating AcmeKey), we can do things like this
+        // r will be from 0x24 to 0x44
+        //let r = &p8[0x24..0x44];
+        // x will be from 0x4a to 0x6a
+        let x = &p8[0x4a..0x6a];
+        // y will be from 0x6a to 0x8a
+        let y = &p8[0x6a..0x8a];
+        let common = biscuit::jwk::CommonParameters {
+            algorithm: Some(biscuit::jwa::Algorithm::Signature(
+                biscuit::jwa::SignatureAlgorithm::ES256,
+            )),
+            ..Default::default()
+        };
+        let algorithm = biscuit::jwk::AlgorithmParameters::EllipticCurve(
+            biscuit::jwk::EllipticCurveKeyParameters {
+                key_type: biscuit::jwk::EllipticCurveKeyType::EC,
+                curve: biscuit::jwk::EllipticCurve::P256,
+                x: x.to_vec(),
+                y: y.to_vec(),
+                ..Default::default()
+            },
+        );
+        biscuit::jwk::JWK {
+            common,
+            algorithm,
+            additional: Default::default(),
         }
     }
 }
@@ -83,23 +118,6 @@ impl From<&Jwk> for JwkThumb {
             kty: a.kty.clone(),
             x: a.x.clone(),
             y: a.y.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct Jws {
-    protected: String,
-    payload: String,
-    signature: String,
-}
-
-impl Jws {
-    pub(crate) fn new(protected: String, payload: String, signature: String) -> Self {
-        Jws {
-            protected,
-            payload,
-            signature,
         }
     }
 }
