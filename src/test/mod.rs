@@ -1,8 +1,13 @@
 #![allow(clippy::trivial_regex)]
+#![cfg(test)]
 
-use futures::Future;
-use hyper::{service::service_fn_ok, Body, Method, Request, Response, Server};
+use hyper::{
+    server::Server,
+    service::{make_service_fn, service_fn},
+    Body, Method, Request, Response,
+};
 use lazy_static::lazy_static;
+use std::convert::Infallible;
 use std::net::TcpListener;
 use std::thread;
 
@@ -10,16 +15,16 @@ lazy_static! {
     static ref RE_URL: regex::Regex = regex::Regex::new("<URL>").unwrap();
 }
 
-pub const EXAMPLE_CERT_CHAIN: &'static str = include_str!("./example.org.crt");
+pub const EXAMPLE_CERT_CHAIN: &str = include_str!("./example.org.crt");
 
 pub struct TestServer {
     pub dir_url: String,
-    shutdown: Option<futures::sync::oneshot::Sender<()>>,
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        self.shutdown.take().unwrap().send(()).ok();
+        let _ = self.shutdown.take().unwrap().send(());
     }
 }
 
@@ -184,24 +189,30 @@ fn route_request(req: Request<Body>, url: &str) -> Response<Body> {
 pub fn with_directory_server() -> TestServer {
     let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = tcp.local_addr().unwrap().port();
-
     let url = format!("http://127.0.0.1:{}", port);
     let dir_url = format!("{}/directory", url);
 
-    let make_service = move || {
+    let make_service = make_service_fn(move |_conn| {
         let url2 = url.clone();
-        service_fn_ok(move |req| route_request(req, &url2))
-    };
-    let server = Server::from_tcp(tcp).unwrap().serve(make_service);
+        async {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                std::future::ready(Ok::<_, Infallible>(route_request(req, &url2)))
+            }))
+        }
+    });
 
-    let (tx, rx) = futures::sync::oneshot::channel::<()>();
-
-    let graceful = server
-        .with_graceful_shutdown(rx)
-        .map_err(|err| eprintln!("server error: {}", err));
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
     thread::spawn(move || {
-        hyper::rt::run(graceful);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let server = Server::from_tcp(tcp).unwrap().serve(make_service);
+            let graceful = server.with_graceful_shutdown(async {
+                rx.await.unwrap();
+            });
+            graceful.await
+        })
+        .unwrap();
     });
 
     TestServer {

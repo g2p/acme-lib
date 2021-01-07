@@ -22,7 +22,7 @@ impl JwsProtected {
         };
         let registered = biscuit::jws::RegisteredHeader {
             algorithm: biscuit::jwa::SignatureAlgorithm::ES256,
-            web_key: Some(serde_json::to_string(&jwk).unwrap()),
+            web_key: Some(jwk),
             media_type: None,
             ..Default::default()
         };

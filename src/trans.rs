@@ -173,9 +173,11 @@ fn jws_with<T: Serialize + ?Sized>(
     let jws = biscuit::jws::Flattened::new(
         payload,
         protected.0,
-        Default::default(),
+        //Default::default(),
         &key.jws_secret,
     );
 
-    Ok(serde_json::to_string(&jws)?)
+    let r = serde_json::to_string(&jws)?;
+    info!("JWS {}", r);
+    Ok(r)
 }
