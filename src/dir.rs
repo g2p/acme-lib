@@ -114,9 +114,7 @@ mod test {
         let server = crate::test::with_directory_server();
         let url = DirectoryUrl::Other(&server.dir_url);
         let dir = Directory::from_url(url)?;
-        let _ = dir.register_account(vec![
-            "mailto:foo@bar.com".to_string(),
-        ])?;
+        let _ = dir.register_account(vec!["mailto:foo@bar.com".to_string()])?;
         Ok(())
     }
 
