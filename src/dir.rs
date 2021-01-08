@@ -46,10 +46,10 @@ static RNG: once_cell::sync::Lazy<ring::rand::SystemRandom> =
 
 impl Directory {
     /// Create a directory over a persistence implementation and directory url.
-    pub fn from_url(url: DirectoryUrl) -> Result<Directory> {
+    pub async fn from_url(url: DirectoryUrl<'_>) -> Result<Directory> {
         let dir_url = url.to_url();
-        let res = req_handle_error(req_get(&dir_url))?;
-        let api_directory: ApiDirectory = read_json(res)?;
+        let res = req_handle_error(req_get(&dir_url).await?).await?;
+        let api_directory: ApiDirectory = read_json(res).await?;
         let nonce_pool = Arc::new(NoncePool::new(&api_directory.newNonce));
         Ok(Directory {
             nonce_pool,
@@ -57,17 +57,17 @@ impl Directory {
         })
     }
 
-    pub fn register_account(&self, contact: Vec<String>) -> Result<Account> {
+    pub async fn register_account(&self, contact: Vec<String>) -> Result<Account> {
         let acme_key = AcmeKey::new(&*RNG)?;
-        self.upsert_account(acme_key, contact)
+        self.upsert_account(acme_key, contact).await
     }
 
-    pub fn load_account(&self, pkcs8: &[u8], contact: Vec<String>) -> Result<Account> {
+    pub async fn load_account(&self, pkcs8: &[u8], contact: Vec<String>) -> Result<Account> {
         let acme_key = AcmeKey::from_pkcs8(pkcs8)?;
-        self.upsert_account(acme_key, contact)
+        self.upsert_account(acme_key, contact).await
     }
 
-    fn upsert_account(&self, acme_key: AcmeKey, contact: Vec<String>) -> Result<Account> {
+    async fn upsert_account(&self, acme_key: AcmeKey, contact: Vec<String>) -> Result<Account> {
         // Prepare making a call to newAccount. This is fine to do both for
         // new keys and existing. For existing the spec says to return a 200
         // with the Location header set to the key id (kid).
@@ -78,10 +78,12 @@ impl Directory {
         };
 
         let mut transport = Transport::new(&self.nonce_pool, acme_key);
-        let res = transport.call_jwk(&self.api_directory.newAccount, &acc)?;
+        let res = transport
+            .call_jwk(&self.api_directory.newAccount, &acc)
+            .await?;
         let kid = req_expect_header(&res, "location")?;
         debug!("Key id is: {}", kid);
-        let api_account: ApiAccount = read_json(res)?;
+        let api_account: ApiAccount = read_json(res).await?;
 
         // fill in the server returned key id
         transport.set_key_id(kid);
@@ -104,20 +106,22 @@ impl Directory {
 mod test {
     use super::*;
 
-    #[test]
-    fn test_create_directory() -> Result<()> {
+    #[tokio::test]
+    async fn test_create_directory() -> Result<()> {
         let server = crate::test::with_directory_server();
         let url = DirectoryUrl::Other(&server.dir_url);
-        let _ = Directory::from_url(url)?;
+        let _ = Directory::from_url(url).await?;
         Ok(())
     }
 
-    #[test]
-    fn test_create_acount() -> Result<()> {
+    #[tokio::test]
+    async fn test_create_acount() -> Result<()> {
         let server = crate::test::with_directory_server();
         let url = DirectoryUrl::Other(&server.dir_url);
-        let dir = Directory::from_url(url)?;
-        let _ = dir.register_account(vec!["mailto:foo@bar.com".to_string()])?;
+        let dir = Directory::from_url(url).await?;
+        let _ = dir
+            .register_account(vec!["mailto:foo@bar.com".to_string()])
+            .await?;
         Ok(())
     }
 

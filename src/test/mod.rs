@@ -7,7 +7,7 @@ use hyper::{
     Body, Method, Request, Response,
 };
 use lazy_static::lazy_static;
-use std::convert::Infallible;
+use std::convert::{Infallible, TryInto};
 use std::net::TcpListener;
 use std::thread;
 
@@ -221,9 +221,13 @@ pub fn with_directory_server() -> TestServer {
     }
 }
 
-#[test]
-pub fn test_make_directory() {
+#[tokio::test]
+pub async fn test_make_directory() {
     let server = with_directory_server();
-    let res = ureq::get(&server.dir_url).call();
-    assert!(res.ok());
+    let client = hyper::Client::new();
+    let res = client
+        .get((&server.dir_url).try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(res.status().is_success());
 }

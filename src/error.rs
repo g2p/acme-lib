@@ -22,6 +22,8 @@ pub enum Error {
     Io(io::Error),
     /// Rcgen (certificate generation)
     Rcgen(rcgen::RcgenError),
+    /// Hyper (http client)
+    Hyper(hyper::Error),
     /// Some other error. Notice that `Error` is
     /// `From<String>` and `From<&str>` and it becomes `Other`.
     Other(String),
@@ -38,6 +40,7 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "{}", e),
             Error::Rcgen(e) => write!(f, "{}", e),
             Error::Other(s) => write!(f, "{}", s),
+            Error::Hyper(e) => write!(f, "{}", e),
         }
     }
 }
@@ -75,6 +78,12 @@ impl From<ring::error::KeyRejected> for Error {
 impl From<ring::error::Unspecified> for Error {
     fn from(_: ring::error::Unspecified) -> Self {
         Error::Other("Unspecified ring error".to_owned())
+    }
+}
+
+impl From<hyper::Error> for Error {
+    fn from(e: hyper::Error) -> Self {
+        Error::Hyper(e)
     }
 }
 

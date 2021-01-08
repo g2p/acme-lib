@@ -1,84 +1,110 @@
 use crate::api::ApiProblem;
 
+use hyper::body::HttpBody;
+use hyper::client::HttpConnector;
+use hyper::header::HeaderValue;
+use hyper::{Body, Client, Request, Response};
+use hyper_rustls::HttpsConnector;
+use hyper_timeout::TimeoutConnector;
+use once_cell::sync::Lazy;
+use std::time::Duration;
+
+// Note: currently using 5s timeouts, previous ACME used 30s, shorter is better until proven otherwise
+static HTTP_CLIENT: Lazy<Client<TimeoutConnector<HttpsConnector<HttpConnector>>>> =
+    Lazy::new(|| {
+        let https = HttpsConnector::with_webpki_roots();
+        let mut connector = TimeoutConnector::new(https);
+        connector.set_connect_timeout(Some(Duration::from_secs(5)));
+        connector.set_read_timeout(Some(Duration::from_secs(5)));
+        connector.set_write_timeout(Some(Duration::from_secs(5)));
+        Client::builder().build::<_, Body>(connector)
+    });
+
+static PROBLEM_CONTENT_TYPE: Lazy<HeaderValue> =
+    Lazy::new(|| HeaderValue::from_static("application/problem+json"));
+
 pub(crate) type ReqResult<T> = std::result::Result<T, ApiProblem>;
 
-pub(crate) fn req_get(url: &str) -> ureq::Response {
-    let mut req = ureq::get(url);
-    req_configure(&mut req);
+pub(crate) async fn req_get(url: &str) -> hyper::Result<Response<Body>> {
+    let req = Request::get(url).body(Body::empty()).unwrap();
+
     trace!("{:?}", req);
-    req.call()
+    HTTP_CLIENT.request(req).await
 }
 
-pub(crate) fn req_head(url: &str) -> ureq::Response {
-    let mut req = ureq::head(url);
-    req_configure(&mut req);
+pub(crate) async fn req_head(url: &str) -> hyper::Result<Response<Body>> {
+    let req = Request::head(url).body(Body::empty()).unwrap();
     trace!("{:?}", req);
-    req.call()
+    HTTP_CLIENT.request(req).await
 }
 
-pub(crate) fn req_post(url: &str, body: &str) -> ureq::Response {
-    let mut req = ureq::post(url);
-    req.set("content-type", "application/jose+json");
-    req_configure(&mut req);
-    trace!("{:?} {}", req, body);
-    req.send_string(body)
+pub(crate) async fn req_post(url: &str, body: String) -> hyper::Result<Response<Body>> {
+    let req = Request::post(url)
+        .header("content-type", "application/jose+json")
+        .body(body.into())
+        .unwrap();
+    trace!("{:?}", req);
+    HTTP_CLIENT.request(req).await
 }
 
-fn req_configure(req: &mut ureq::Request) {
-    req.timeout_connect(30_000);
-    req.timeout_read(30_000);
-    req.timeout_write(30_000);
-}
+pub(crate) async fn req_handle_error(res: Response<Body>) -> ReqResult<Response<Body>> {
+    let status = res.status();
 
-pub(crate) fn req_handle_error(res: ureq::Response) -> ReqResult<ureq::Response> {
-    // ok responses pass through
-    if res.ok() {
-        return Ok(res);
-    }
-
-    let problem = if res.content_type() == "application/problem+json" {
-        // if we were sent a problem+json, deserialize it
-        let body = req_safe_read_body(res);
-        serde_json::from_str(&body).unwrap_or_else(|e| ApiProblem {
-            _type: "problemJsonFail".into(),
-            detail: Some(format!(
-                "Failed to deserialize application/problem+json ({}) body: {}",
-                e.to_string(),
-                body
-            )),
-            subproblems: None,
-        })
+    if status.is_success() {
+        Ok(res)
     } else {
-        // some other problem
-        let status = format!("{} {}", res.status(), res.status_text());
-        let body = req_safe_read_body(res);
-        let detail = format!("{} body: {}", status, body);
-        ApiProblem {
-            _type: "httpReqError".into(),
-            detail: Some(detail),
-            subproblems: None,
-        }
-    };
-
-    Err(problem)
+        let problem = if res.headers().get("content-type") == Some(&PROBLEM_CONTENT_TYPE) {
+            // if we were sent a problem+json, deserialize it
+            let body = req_safe_read_body(res).await;
+            serde_json::from_str(&body).unwrap_or_else(|e| ApiProblem {
+                _type: "problemJsonFail".into(),
+                detail: Some(format!(
+                    "Failed to deserialize application/problem+json ({}) body: {}",
+                    e.to_string(),
+                    body
+                )),
+                subproblems: None,
+            })
+        } else {
+            // some other problem
+            let body = req_safe_read_body(res).await;
+            ApiProblem {
+                _type: "httpReqError".into(),
+                detail: Some(format!("{} body: {}", status, body)),
+                subproblems: None,
+            }
+        };
+        Err(problem)
+    }
 }
 
-pub(crate) fn req_expect_header(res: &ureq::Response, name: &str) -> ReqResult<String> {
-    res.header(name)
-        .map(|v| v.to_string())
-        .ok_or_else(|| ApiProblem {
+pub(crate) fn req_expect_header(res: &Response<Body>, name: &str) -> ReqResult<String> {
+    if let Some(val) = res.headers().get(name) {
+        if let Ok(val) = val.to_str() {
+            Ok(val.to_owned())
+        } else {
+            Err(ApiProblem {
+                _type: format!("Missing header: {}", name),
+                detail: None,
+                subproblems: None,
+            })
+        }
+    } else {
+        Err(ApiProblem {
             _type: format!("Missing header: {}", name),
             detail: None,
             subproblems: None,
         })
+    }
 }
 
-pub(crate) fn req_safe_read_body(res: ureq::Response) -> String {
-    use std::io::Read;
-    let mut res_body = String::new();
-    let mut read = res.into_reader();
+pub(crate) async fn req_safe_read_body(res: Response<Body>) -> String {
+    let mut body_str = String::new();
+    let mut body = res.into_body();
     // letsencrypt sometimes closes the TLS abruptly causing io error
     // even though we did capture the body.
-    read.read_to_string(&mut res_body).ok();
-    res_body
+    while let Some(chunk) = body.data().await {
+        body_str.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+    }
+    body_str
 }

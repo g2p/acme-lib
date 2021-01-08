@@ -67,7 +67,7 @@ impl Auth {
     /// use std::fs::File;
     /// use std::io::Write;
     ///
-    /// fn web_authorize(auth: &Auth) -> Result<(), Error> {
+    /// async fn web_authorize(auth: &Auth) -> Result<(), Error> {
     ///   let challenge = auth.http_challenge();
     ///   // Assuming our web server's root is under /var/www
     ///   let path = {
@@ -76,7 +76,7 @@ impl Auth {
     ///   };
     ///   let mut file = File::create(&path)?;
     ///   file.write_all(challenge.http_proof().as_bytes())?;
-    ///   challenge.validate(5000)?;
+    ///   challenge.validate(5000).await?;
     ///   Ok(())
     /// }
     /// ```
@@ -101,11 +101,11 @@ impl Auth {
     /// use acme_lib::order::Auth;
     /// use acme_lib::Error;
     ///
-    /// fn dns_authorize(auth: &Auth) -> Result<(), Error> {
+    /// async fn dns_authorize(auth: &Auth) -> Result<(), Error> {
     ///   let challenge = auth.dns_challenge();
     ///   let record = format!("_acme-challenge.{}.", auth.domain_name());
     ///   // route_53_set_record(&record, "TXT", challenge.dns_proof());
-    ///   challenge.validate(5000)?;
+    ///   challenge.validate(5000).await?;
     ///   Ok(())
     /// }
     /// ```
@@ -225,12 +225,16 @@ impl<A> Challenge<A> {
     ///
     /// The user must first update the DNS record or HTTP web server depending
     /// on the type challenge being validated.
-    pub fn validate(self, delay_millis: u64) -> Result<()> {
+    pub async fn validate(self, delay_millis: u64) -> Result<()> {
         let url_chall = &self.api_challenge.url;
-        let res = self.inner.transport.call(url_chall, &ApiEmptyObject)?;
-        let _: ApiChallenge = read_json(res)?;
+        let res = self
+            .inner
+            .transport
+            .call(url_chall, &ApiEmptyObject)
+            .await?;
+        let _: ApiChallenge = read_json(res).await?;
 
-        let auth = wait_for_auth_status(&self.inner, &self.auth_url, delay_millis)?;
+        let auth = wait_for_auth_status(&self.inner, &self.auth_url, delay_millis).await?;
 
         if !auth.is_status_valid() {
             let error = auth
@@ -264,14 +268,14 @@ fn key_authorization(token: &str, key: &AcmeKey) -> String {
     format!("{}.{}", token, thumbprint)
 }
 
-fn wait_for_auth_status(
+async fn wait_for_auth_status(
     inner: &Arc<AccountInner>,
     auth_url: &str,
     delay_millis: u64,
 ) -> Result<ApiAuth> {
     let auth = loop {
-        let res = inner.transport.call(auth_url, &ApiEmptyString)?;
-        let auth: ApiAuth = read_json(res)?;
+        let res = inner.transport.call(auth_url, &ApiEmptyString).await?;
+        let auth: ApiAuth = read_json(res).await?;
         if !auth.is_status_pending() {
             break auth;
         }
@@ -284,14 +288,16 @@ fn wait_for_auth_status(
 mod test {
     use crate::*;
 
-    #[test]
-    fn test_get_challenges() -> Result<()> {
+    #[tokio::test]
+    async fn test_get_challenges() -> Result<()> {
         let server = crate::test::with_directory_server();
         let url = DirectoryUrl::Other(&server.dir_url);
-        let dir = Directory::from_url(url)?;
-        let acc = dir.register_account(vec!["mailto:foo@bar.com".to_string()])?;
-        let ord = acc.new_order("acmetest.example.com", &[])?;
-        let authz = ord.authorizations()?;
+        let dir = Directory::from_url(url).await?;
+        let acc = dir
+            .register_account(vec!["mailto:foo@bar.com".to_string()])
+            .await?;
+        let ord = acc.new_order("acmetest.example.com", &[]).await?;
+        let authz = ord.authorizations().await?;
         assert!(authz.len() == 1);
         let auth = &authz[0];
         {

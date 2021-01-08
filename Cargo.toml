@@ -12,12 +12,14 @@ edition = "2018"
 
 [dependencies]
 base64 = "0.13"
+hyper = "0.14"
+hyper-rustls = { version = "0.22", features = ["webpki-roots"] }
+hyper-timeout = "0.4"
 lazy_static = "1.4"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 time = "0.2"
-ureq = "1"
 rcgen = "0.8"
 rustls = "0.19"
 ring = "0.16"
@@ -26,6 +28,6 @@ biscuit.path = "../../lawliet89/biscuit"
 
 [dev-dependencies]
 env_logger = { version = "0.8", default-features = false }
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 regex = "1.4"
