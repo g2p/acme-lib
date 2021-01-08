@@ -1,4 +1,5 @@
-//
+use once_cell::sync::Lazy;
+use ring::rand::SystemRandom;
 use std::sync::Arc;
 
 use crate::acc::AcmeKey;
@@ -41,8 +42,7 @@ pub struct Directory {
     api_directory: ApiDirectory,
 }
 
-static RNG: once_cell::sync::Lazy<ring::rand::SystemRandom> =
-    once_cell::sync::Lazy::new(ring::rand::SystemRandom::new);
+static RNG: Lazy<SystemRandom> = Lazy::new(SystemRandom::new);
 
 impl Directory {
     /// Create a directory over a persistence implementation and directory url.

@@ -6,14 +6,13 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Method, Request, Response,
 };
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::convert::{Infallible, TryInto};
 use std::net::TcpListener;
 use std::thread;
 
-lazy_static! {
-    static ref RE_URL: regex::Regex = regex::Regex::new("<URL>").unwrap();
-}
+static RE_URL: Lazy<Regex> = Lazy::new(|| Regex::new("<URL>").unwrap());
 
 pub const EXAMPLE_CERT_CHAIN: &str = include_str!("./example.org.crt");
 
