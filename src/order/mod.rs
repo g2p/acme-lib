@@ -18,7 +18,6 @@
 //! [`CsrOrder`]: struct.CsrOrder.html
 //! [`CertOrder`]: struct.CertOrder.html
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 use crate::acc::AccountInner;
@@ -271,7 +270,7 @@ async fn wait_for_order_status(
         if !order.api_order.is_status_processing() {
             return Ok(order);
         }
-        thread::sleep(Duration::from_millis(delay_millis));
+        tokio::time::sleep(Duration::from_millis(delay_millis)).await;
     }
 }
 

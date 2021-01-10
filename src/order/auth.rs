@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 use crate::acc::AccountInner;
@@ -279,7 +278,7 @@ async fn wait_for_auth_status(
         if !auth.is_status_pending() {
             break auth;
         }
-        thread::sleep(Duration::from_millis(delay_millis));
+        tokio::time::sleep(Duration::from_millis(delay_millis)).await;
     };
     Ok(auth)
 }
