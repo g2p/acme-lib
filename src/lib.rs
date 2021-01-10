@@ -31,8 +31,11 @@
 //! // skip validation. The ACME API provider decides.
 //! let ord_csr = loop {
 //!     // are we done?
-//!     if let Some(ord_csr) = ord_new.confirm_validations() {
-//!         break ord_csr;
+//!     match ord_new.confirm_validations() {
+//!         Ok(ord_csr) =>
+//!             break ord_csr,
+//!         Err(ord_new1) =>
+//!             ord_new = ord_new1,
 //!     }
 //!
 //!     // Get the possible authorizations (for a single domain

@@ -34,6 +34,7 @@ mod auth;
 pub use self::auth::{Auth, Challenge, Dns, Http, TlsAlpn};
 
 /// The order wrapped with an outer façade.
+#[derive(Debug)]
 pub(crate) struct Order {
     inner: Arc<AccountInner>,
     api_order: ApiOrder,
@@ -102,6 +103,7 @@ async fn api_order_of(res: Response<Body>, want_status: &str) -> Result<ApiOrder
 /// [`Account::new_order`]: ../struct.Account.html#method.new_order
 /// [confirmed ownership]: ../index.html#domain-ownership
 /// [CSR]: https://en.wikipedia.org/wiki/Certificate_signing_request
+#[derive(Debug)]
 pub struct NewOrder {
     pub(crate) order: Order,
 }
@@ -125,17 +127,11 @@ impl NewOrder {
     ///
     /// [`is_validated`]: struct.NewOrder.html#method.is_validated
     /// [`CsrOrder`]: struct.CsrOrder.html
-    pub fn confirm_validations(&self) -> Option<CsrOrder> {
+    pub fn confirm_validations(self) -> std::result::Result<CsrOrder, NewOrder> {
         if self.is_validated() {
-            Some(CsrOrder {
-                order: Order::new(
-                    &self.order.inner,
-                    self.order.api_order.clone(),
-                    self.order.url.clone(),
-                ),
-            })
+            Ok(CsrOrder { order: self.order })
         } else {
-            None
+            Err(self)
         }
     }
 
