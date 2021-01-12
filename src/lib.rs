@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![warn(clippy::all)]
 //! acme-lib is a library for accessing ACME (Automatic Certificate Management Environment)
 //! services such as [Let's Encrypt](https://letsencrypt.org/).
