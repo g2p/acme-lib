@@ -1,3 +1,4 @@
+use biscuit::jws::{Signable, SignedData};
 use hyper::{Body, Response};
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -175,14 +176,12 @@ fn jws_with<T: Serialize + ?Sized>(
     //let to_sign = format!("{}.{}", protected, payload);
     //let signature = key.keypair.sign(rng, to_sign.as_bytes())?;
     //let signature = base64url(signature.as_ref());
-    let jws = biscuit::jws::Flattened::new(
-        payload,
-        protected.0,
-        //Default::default(),
-        &key.jws_secret,
-    );
+    let jws = SignedData::sign(
+        Signable::new(protected.0, payload).unwrap(),
+        key.jws_secret.clone(),
+    )?;
 
-    let r = serde_json::to_string(&jws)?;
+    let r = jws.serialize_flattened();
     info!("JWS {}", r);
     Ok(r)
 }

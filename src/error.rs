@@ -24,6 +24,8 @@ pub enum Error {
     Rcgen(rcgen::RcgenError),
     /// Hyper (http client)
     Hyper(hyper::Error),
+    /// Biscuit (JWS and JOSE)
+    Biscuit(biscuit::errors::Error),
     /// Some other error. Notice that `Error` is
     /// `From<String>` and `From<&str>` and it becomes `Other`.
     Other(String),
@@ -39,8 +41,9 @@ impl fmt::Display for Error {
             Error::Json(e) => write!(f, "{}", e),
             Error::Io(e) => write!(f, "{}", e),
             Error::Rcgen(e) => write!(f, "{}", e),
-            Error::Other(s) => write!(f, "{}", s),
             Error::Hyper(e) => write!(f, "{}", e),
+            Error::Biscuit(e) => write!(f, "{}", e),
+            Error::Other(s) => write!(f, "{}", s),
         }
     }
 }
@@ -84,6 +87,12 @@ impl From<ring::error::Unspecified> for Error {
 impl From<hyper::Error> for Error {
     fn from(e: hyper::Error) -> Self {
         Error::Hyper(e)
+    }
+}
+
+impl From<biscuit::errors::Error> for Error {
+    fn from(e: biscuit::errors::Error) -> Self {
+        Error::Biscuit(e)
     }
 }
 
