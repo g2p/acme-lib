@@ -106,7 +106,7 @@ impl From<&AcmeKey> for biscuit::jwk::JWK<biscuit::Empty> {
         biscuit::jwk::JWK {
             common,
             algorithm,
-            additional: Default::default(),
+            additional: biscuit::Empty::default(),
         }
     }
 }

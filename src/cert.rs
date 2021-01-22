@@ -1,11 +1,19 @@
 use crate::Result;
 
 pub(crate) fn create_csr_der(key: &rcgen::KeyPair, domains: &[&str]) -> Result<Vec<u8>> {
+    assert!(!domains.is_empty());
     let domains: Vec<String> = domains.iter().map(|d| str::to_owned(d)).collect();
+    let domain0 = domains[0].clone();
     let mut params = rcgen::CertificateParams::new(domains);
     // Work around the lack of clone / to_owned
     let key = rcgen::KeyPair::from_pem(&key.serialize_pem())?;
+    // XXX rcgen doesn't expose a single alg;
+    // finalize_pkey only gets the rcgen KeyPair
+    params.alg = key.compatible_algs().next().unwrap();
     params.key_pair = Some(key);
+    let mut dn = rcgen::DistinguishedName::new();
+    dn.push(rcgen::DnType::CommonName, domain0);
+    params.distinguished_name = dn;
     let cert = rcgen::Certificate::from_params(params)?;
     Ok(cert.serialize_request_der()?)
 }
