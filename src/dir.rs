@@ -82,7 +82,7 @@ impl Directory {
             .call_jwk(&self.api_directory.newAccount, &acc)
             .await?;
         let kid = req_expect_header(&res, "location")?;
-        debug!("Key id is: {}", kid);
+        log::debug!("Key id is: {}", kid);
         let api_account: ApiAccount = read_json(res).await?;
 
         // fill in the server returned key id

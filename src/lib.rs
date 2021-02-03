@@ -150,8 +150,6 @@
 //! heavily on the [openssl](https://docs.rs/openssl/) crate to make JWK/JWT and sign requests
 //! to the API.
 //!
-#[macro_use]
-extern crate log;
 
 mod acc;
 mod cert;

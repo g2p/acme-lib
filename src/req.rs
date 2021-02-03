@@ -28,13 +28,13 @@ pub(crate) type ReqResult<T> = std::result::Result<T, ApiProblem>;
 pub(crate) async fn req_get(url: &str) -> hyper::Result<Response<Body>> {
     let req = Request::get(url).body(Body::empty()).unwrap();
 
-    trace!("{:?}", req);
+    log::trace!("{:?}", req);
     HTTP_CLIENT.request(req).await
 }
 
 pub(crate) async fn req_head(url: &str) -> hyper::Result<Response<Body>> {
     let req = Request::head(url).body(Body::empty()).unwrap();
-    trace!("{:?}", req);
+    log::trace!("{:?}", req);
     HTTP_CLIENT.request(req).await
 }
 
@@ -43,7 +43,7 @@ pub(crate) async fn req_post(url: &str, body: String) -> hyper::Result<Response<
         .header("content-type", "application/jose+json")
         .body(body.into())
         .unwrap();
-    trace!("{:?}", req);
+    log::trace!("{:?}", req);
     HTTP_CLIENT.request(req).await
 }
 

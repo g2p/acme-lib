@@ -12,6 +12,6 @@ pub(crate) fn base64url<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
 
 pub(crate) async fn read_json<T: DeserializeOwned>(res: Response<Body>) -> Result<T> {
     let res_body = req_safe_read_body(res).await;
-    debug!("{}", res_body);
+    log::debug!("{}", res_body);
     Ok(serde_json::from_str(&res_body)?)
 }
