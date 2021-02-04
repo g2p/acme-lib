@@ -12,7 +12,14 @@ use std::time::Duration;
 // Note: currently using 5s timeouts, previous ACME used 30s, shorter is better until proven otherwise
 static HTTP_CLIENT: Lazy<Client<TimeoutConnector<HttpsConnector<HttpConnector>>>> =
     Lazy::new(|| {
-        let https = HttpsConnector::with_webpki_roots();
+        // The simple constructor would cause issues: https://github.com/ctz/hyper-rustls/issues/143
+        //let https = HttpsConnector::with_webpki_roots();
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+        let mut tls_config = rustls::ClientConfig::new();
+        tls_config.root_store.add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+        tls_config.ct_logs = Some(&ct_logs::LOGS);
+        let https = (http, tls_config).into();
         let mut connector = TimeoutConnector::new(https);
         connector.set_connect_timeout(Some(Duration::from_secs(5)));
         connector.set_read_timeout(Some(Duration::from_secs(5)));
